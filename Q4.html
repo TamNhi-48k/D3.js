@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Doanh số bán hàng trung bình theo Ngày trong tuần</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+        }
+        h2 {
+            text-align: center;
+            color: #17a2b8;
+            font-weight: bold;
+        }
+        .chart-container {
+            display: flex;
+            justify-content: center;
+        }
+        .bar text {
+            fill: white;
+            font-size: 14px;
+            font-weight: bold;
+            text-anchor: middle;
+        }
+    </style>
+</head>
+<body>
+
+    <h2>Doanh số bán hàng trung bình theo Ngày trong tuần</h2>
+    <div class="chart-container">
+        <svg width="900" height="500"></svg>
+    </div>
+
+    <script>
+        // Danh sách ngày trong tuần theo thứ tự
+        const weekdays = ["Thứ Hai", "Thứ Ba", "Thứ Tư", "Thứ Năm", "Thứ Sáu", "Thứ Bảy", "Chủ Nhật"];
+        
+        // Màu sắc cho từng cột
+        const colorScale = d3.scaleOrdinal()
+            .domain(weekdays)
+            .range(["#17a2b8", "#343a40", "#dc3545", "#ffc107", "#6c757d", "#87CEEB", "#FF9966"]);
+
+        d3.csv("data.csv").then(data => {
+            // Chuyển đổi cột "Thời gian tạo đơn" thành datetime
+            data.forEach(d => {
+                d["Thời gian tạo đơn"] = new Date(d["Thời gian tạo đơn"]);
+            });
+
+            // Thêm cột "Ngày trong tuần"
+            data.forEach(d => {
+                let dayIndex = d["Thời gian tạo đơn"].getDay(); // 0 (Chủ Nhật) đến 6 (Thứ Bảy)
+                d["Ngày trong tuần"] = weekdays[dayIndex === 0 ? 6 : dayIndex - 1]; // Đổi 0 -> Chủ Nhật, 1 -> Thứ Hai, ...
+            });
+
+            // Tính tổng doanh thu theo từng ngày cụ thể
+            let totalRevenuePerDay = d3.rollup(
+                data,
+                v => d3.sum(v, d => +d["Thành tiền"]),
+                d => d["Ngày trong tuần"],
+                d => d["Thời gian tạo đơn"].toDateString() // Nhóm theo ngày cụ thể
+            );
+
+            // Chuyển kết quả sang dạng dễ xử lý
+            let dailyTotals = [];
+            totalRevenuePerDay.forEach((days, weekday) => {
+                days.forEach((total, date) => {
+                    dailyTotals.push({ "Ngày trong tuần": weekday, "Ngày cụ thể": date, "Tổng doanh thu": total });
+                });
+            });
+
+            // Tính doanh thu trung bình theo từng ngày trong tuần
+            let avgRevenuePerWeekday = d3.rollups(
+                dailyTotals,
+                v => d3.mean(v, d => d["Tổng doanh thu"]),
+                d => d["Ngày trong tuần"]
+            ).map(d => ({
+                "Ngày trong tuần": d[0],
+                "Doanh thu TB": d[1]
+            }));
+
+            // Sắp xếp theo đúng thứ tự Thứ Hai → Chủ Nhật
+            avgRevenuePerWeekday.sort((a, b) => weekdays.indexOf(a["Ngày trong tuần"]) - weekdays.indexOf(b["Ngày trong tuần"]));
+
+            // Vẽ biểu đồ cột với D3.js
+            const svg = d3.select("svg"),
+                  margin = {top: 40, right: 30, bottom: 50, left: 80},
+                  width = +svg.attr("width") - margin.left - margin.right,
+                  height = +svg.attr("height") - margin.top - margin.bottom;
+
+            const g = svg.append("g").attr("transform", `translate(${margin.left},${margin.top})`);
+
+            // Thang đo trục x
+            const x = d3.scaleBand()
+                .domain(avgRevenuePerWeekday.map(d => d["Ngày trong tuần"]))
+                .range([0, width])
+                .padding(0.3);
+
+            // Thang đo trục y
+            const y = d3.scaleLinear()
+                .domain([0, d3.max(avgRevenuePerWeekday, d => d["Doanh thu TB"])]).nice()
+                .range([height, 0]);
+
+            // Thêm cột vào biểu đồ
+            g.selectAll(".bar")
+                .data(avgRevenuePerWeekday)
+                .enter().append("rect")
+                .attr("class", "bar")
+                .attr("x", d => x(d["Ngày trong tuần"]))
+                .attr("y", d => y(d["Doanh thu TB"]))
+                .attr("width", x.bandwidth())
+                .attr("height", d => height - y(d["Doanh thu TB"]))
+                .attr("fill", d => colorScale(d["Ngày trong tuần"]));
+
+            // Thêm trục x
+            g.append("g")
+                .attr("transform", `translate(0,${height})`)
+                .call(d3.axisBottom(x));
+
+            // Thêm trục y
+            g.append("g")
+                .call(d3.axisLeft(y).ticks(5).tickFormat(d => d / 1e6 + "M"));
+
+            // Hiển thị giá trị trên mỗi cột (bar label)
+            g.selectAll(".bar-label")
+                .data(avgRevenuePerWeekday)
+                .enter().append("text")
+                .attr("x", d => x(d["Ngày trong tuần"]) + x.bandwidth() / 2) // Căn giữa
+                .attr("y", d => y(d["Doanh thu TB"]) + 20)
+                .text(d => (d["Doanh thu TB"]).toLocaleString("vi-VN", { minimumFractionDigits: 0, maximumFractionDigits: 0}) + " VND") 
+                .attr("class", "bar-label")
+                .attr("text-anchor", "middle") // Căn giữa text
+                .attr("font-size", "9px")
+                .attr("fill", "white") // Đổi màu chữ trắng để nổi bật
+                .attr("font-weight", "bold");
+        });
+    </script>
+
+</body>
+</html>

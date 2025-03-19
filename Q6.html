@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Doanh số bán hàng trung bình theo Khung giờ</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+        }
+
+        h2 {
+            text-align: center;
+            color: #17a2b8;
+            font-weight: bold;
+        }
+
+        .chart-container {
+            display: flex;
+            justify-content: center;
+        }
+
+        .bar text {
+            fill: white;
+            font-size: 14px;
+            font-weight: bold;
+            text-anchor: middle;
+        }
+    </style>
+</head>
+
+<body>
+
+    <h2>Doanh số bán hàng trung bình theo Khung giờ</h2>
+    <div class="chart-container">
+        <svg width="1300" height="500"></svg>
+    </div>
+
+    <script>
+        d3.csv("data.csv").then(data => {
+            // Chuyển cột "Thời gian tạo đơn" thành datetime
+            data.forEach(d => {
+                d["Thời gian tạo đơn"] = new Date(d["Thời gian tạo đơn"]);
+            });
+
+            // Thêm cột "Khung giờ" dạng "HH:00-HH:59"
+            data.forEach(d => {
+                const hour = d["Thời gian tạo đơn"].getHours();
+                d["Khung giờ"] = `${String(hour).padStart(2, '0')}:00-${String(hour).padStart(2, '0')}:59`;
+            });
+
+            // Gom nhóm và tính tổng doanh thu theo từng ngày và khung giờ
+            let totalRevenuePerHour = d3.rollup(
+                data,
+                v => d3.sum(v, d => +d["Thành tiền"]),
+                d => d["Khung giờ"],
+                d => d["Thời gian tạo đơn"].toDateString()
+            );
+
+            // Chuyển đổi kết quả sang dạng dễ xử lý
+            let hourlyTotals = [];
+            totalRevenuePerHour.forEach((dates, khungGio) => {
+                dates.forEach((total, date) => {
+                    hourlyTotals.push({ "Khung giờ": khungGio, "Ngày cụ thể": date, "Tổng doanh thu": total });
+                });
+            });
+
+            // Tính doanh thu trung bình theo khung giờ
+            let avgRevenuePerHour = d3.rollups(
+                hourlyTotals,
+                v => d3.mean(v, d => d["Tổng doanh thu"]),
+                d => d["Khung giờ"]
+            ).map(d => ({
+                "Khung giờ": d[0],
+                "Doanh thu TB": d[1]
+            }));
+
+            // Sắp xếp theo khung giờ tăng dần
+            avgRevenuePerHour.sort((a, b) => {
+                const hourA = parseInt(a["Khung giờ"].split(":")[0]);
+                const hourB = parseInt(b["Khung giờ"].split(":")[0]);
+                return hourA - hourB;
+            });
+
+            // Vẽ biểu đồ
+            const svg = d3.select("svg"),
+                margin = { top: 40, right: 30, bottom: 80, left: 100 },
+                width = +svg.attr("width") - margin.left - margin.right,
+                height = +svg.attr("height") - margin.top - margin.bottom;
+
+            const g = svg.append("g").attr("transform", `translate(${margin.left},${margin.top})`);
+
+            // Thang đo trục x
+            const x = d3.scaleBand()
+                .domain(avgRevenuePerHour.map(d => d["Khung giờ"]))
+                .range([0, width])
+                .padding(0.3);
+
+            // Thang đo trục y
+            const y = d3.scaleLinear()
+                .domain([0, d3.max(avgRevenuePerHour, d => d["Doanh thu TB"])]).nice()
+                .range([height, 0]);
+
+            const colorScale = d3.scaleOrdinal(d3.schemeCategory10);
+
+            // Vẽ cột
+            g.selectAll(".bar")
+                .data(avgRevenuePerHour)
+                .enter().append("rect")
+                .attr("class", "bar")
+                .attr("x", d => x(d["Khung giờ"]))
+                .attr("y", d => y(d["Doanh thu TB"]))
+                .attr("width", x.bandwidth())
+                .attr("height", d => height - y(d["Doanh thu TB"]))
+                .attr("fill", d => colorScale(d["Khung giờ"]));
+
+            // Trục X
+            g.append("g")
+                .attr("transform", `translate(0,${height})`)
+                .call(d3.axisBottom(x))
+                .selectAll("text")
+                .attr("transform", "rotate(-45)")
+                .style("text-anchor", "end");
+
+            // Trục Y với đơn vị K
+            g.append("g")
+                .call(d3.axisLeft(y).ticks(5).tickFormat(d => (d / 1000).toFixed(0) + "K"));
+
+            // Hiển thị giá trị trên mỗi cột theo đơn vị K
+            g.selectAll(".bar-label")
+                .data(avgRevenuePerHour)
+                .enter().append("text")
+                .attr("x", d => x(d["Khung giờ"]) + x.bandwidth() / 2)
+                .attr("y", d => y(d["Doanh thu TB"]) - 5)
+                .text(d => (d["Doanh thu TB"] / 1000).toFixed(1) + "K")
+                .attr("class", "bar-label")
+                .attr("text-anchor", "middle")
+                .attr("font-size", "12px")
+                .attr("fill", "black")
+                .attr("font-weight", "bold");
+        });
+    </script>
+
+</body>
+
+</html>

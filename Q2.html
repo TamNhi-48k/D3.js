@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Biểu đồ Doanh số theo Nhóm hàng</title>
+
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+
+    <style>
+        /* Định dạng chung */
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        h1 {
+            text-align: center;
+            color: #2e9fc1; 
+            font-size: 28px;
+        }
+
+        #chart-container {
+            display: flex;
+            flex-direction: row;
+            align-items: flex-start;
+        }
+
+        #chart {
+            width: 1200px;
+            height: 600px;
+        }
+
+        #legend {
+            margin-left: 20px;
+            padding: 20px; /* Tăng padding cho legend */
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            width: 200px; /* Tăng chiều rộng legend */
+            background-color: #f9f9f9;
+        }
+
+        .bar {
+            transition: 0.3s;
+        }
+
+        .bar:hover {
+            opacity: 0.8;
+        }
+
+        .label {
+            font-size: 14px;
+            fill: #333;
+        }
+
+        .axis path,
+        .axis line {
+            stroke: #000;
+            shape-rendering: crispEdges;
+        }
+
+        .axis text {
+            font-size: 12px;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin: 5px 0;
+            font-size: 12px; /* Thu nhỏ cỡ chữ của legend */
+        }
+
+        .legend-color {
+            width: 15px;
+            height: 15px;
+            margin-right: 10px;
+            border-radius: 3px;
+        }
+    </style>
+</head>
+
+<body>
+
+    <h1>Doanh số bán hàng theo Nhóm hàng</h1>
+    <div id="chart-container">
+        <div id="chart"></div>
+        <div id="legend"><strong>Nhóm hàng</strong></div>
+    </div>
+
+    <script>
+        d3.csv("data.csv").then(function (data) {
+            // Nhóm dữ liệu theo nhóm hàng
+            let groupedData = d3.rollup(
+                data,
+                v => d3.sum(v, d => +d["Thành tiền"]),  // Cộng tổng doanh số
+                d => `[${d["Mã nhóm hàng"]}] ${d["Tên nhóm hàng"]}`  // Nhóm theo nhóm hàng
+            );
+
+            // Chuyển dữ liệu từ Map thành mảng
+            let flatData = Array.from(groupedData, ([group, value]) => ({ group, value }));
+
+            // Sắp xếp dữ liệu theo doanh số từ cao đến thấp
+            flatData.sort((a, b) => b.value - a.value);
+
+            // Kích thước biểu đồ
+            let margin = { top: 50, right: 250, bottom: 50, left: 250 },
+                width = 1400 - margin.left - margin.right,
+                height = 600 - margin.top - margin.bottom;
+
+            // Tạo SVG
+            let svg = d3.select("#chart")
+                .append("svg")
+                .attr("width", width + margin.left + margin.right)
+                .attr("height", height + margin.top + margin.bottom)
+                .append("g")
+                .attr("transform", `translate(${margin.left},${margin.top})`);
+
+            // Thang đo X với độ chia mỗi 100 triệu
+            let x = d3.scaleLinear()
+                .domain([0, d3.max(flatData, d => d.value) / 1e6])  // Đơn vị triệu VND
+                .range([0, width * 0.8]);
+
+            let y = d3.scaleBand()
+                .domain(flatData.map(d => d.group))  // Sử dụng nhóm hàng làm trục Y
+                .range([0, height])
+                .padding(0.3);
+
+            // Màu sắc
+            let color = d3.scaleOrdinal(d3.schemeCategory10);
+
+            // Vẽ thanh cột ngang
+            svg.selectAll(".bar")
+                .data(flatData)
+                .enter().append("rect")
+                .attr("class", "bar")
+                .attr("x", 0)
+                .attr("y", d => y(d.group))
+                .attr("width", d => x(d.value / 1e6))
+                .attr("height", y.bandwidth())
+                .attr("fill", d => color(d.group));
+
+            // Thêm nhãn giá trị doanh số
+            svg.selectAll(".label")
+                .data(flatData)
+                .enter().append("text")
+                .attr("class", "label")
+                .attr("x", d => x(d.value / 1e6) + 10)
+                .attr("y", d => y(d.group) + y.bandwidth() / 2)
+                .attr("dy", "0.35em")
+                .text(d => Math.round(d.value / 1e6) + " triệu VND")
+                .style("font-size", "14px");
+
+            // Trục X (doanh số) - Độ chia mỗi 100 triệu VND
+            svg.append("g")
+                .attr("transform", `translate(0,${height})`)
+                .call(d3.axisBottom(x)
+                    .ticks(10)  // Chia theo 100 triệu
+                    .tickFormat(d => d + "M"));
+
+            // Trục Y (nhóm hàng)
+            svg.append("g")
+                .call(d3.axisLeft(y).tickSize(0).tickPadding(10));
+
+            // Thêm legend
+            let legendContainer = d3.select("#legend");
+            let groups = [...new Set(flatData.map(d => d.group))];
+
+            groups.forEach(group => {
+                let legendItem = legendContainer.append("div")
+                    .attr("class", "legend-item");
+
+                legendItem.append("div")
+                    .attr("class", "legend-color")
+                    .style("background-color", color(group));
+
+                legendItem.append("span")
+                    .text(group);
+            });
+        });
+    </script>
+
+</body>
+
+</html>
